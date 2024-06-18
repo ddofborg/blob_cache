@@ -13,9 +13,9 @@ reach inodes limits.
 
 We also needed a caching method which was supported by a Python and PHP scripts.
 
-This approach is also faster than storing each key-value pair in a separate
-file, it is slower than using `LMDB` or `RocksDb`. On PHP platorm those are
-not always readily available and in out case performance was good enough.
+This approach is a little faster than storing each key-value pair in a separate
+file, but it is slower than using `LMDB` or `RocksDb`. On PHP platorm those are
+not always readily available and in our case performance was good enough.
 
 There are no external dependencies.
 
@@ -28,13 +28,12 @@ provided to rebuild the data file. The fragmentation ratio can be checked with
 the `fragmentation_ratio()` method.
 
 Another big drawback is that this approach can only be used by one process at a
-time.
+time. File locking mechanism is present.
 
 
 # Benchmarks
 
-See `README.benchmarks.md` for more benchmarks.
-
+See `README.benchmarks.md` for more benchmarks on Python.
 
 ## 10000 entries, 10000 bytes each
 
@@ -44,23 +43,33 @@ See `README.benchmarks.md` for more benchmarks.
     BlobCache         - Set: 9.1623s, Get: 0.6966s, Delete: 0.0000s
     SeparateFileCache - Set: 12.5391s, Get: 7.1718s, Delete: 0.0000s
 
-
 ## Usage
 
 See `test.py` for more details.
 
 ```python
-from blob_cache_dict import BlobCacheDict
-c = BlobCacheDict('tmp_blob_cache')
-c['a'] = 1
-print(c['a'] == 1)
+from blob_cache import BlobCache
+c = BlobCache('tmp_blob_cache')
+c.set('a', 1)
+print(c.get('a') == 1)
 c.close()
 ```
 
+See `test.php` for more details.
+
+```php
+require_once 'blob_cache.php';
+$c = new BlobCache('tmp_test_cache');
+$c->set('a', 1);
+echo $c->get('a') == 1 ? 'true' : 'false';
+$c->close();
+```
 
 # BLOB FORMATS
 
 Data file:
+
+Data file stats with a header as defined in the cache class. Then it's a linear binary data file.
 
     bytes     type        decription
     -------   ----        ----------
