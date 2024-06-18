@@ -71,7 +71,7 @@ See `test.php` for more details.
 
 ```php
 require_once 'blob_cache.php';
-$c = new BlobCache('tmp_test_cache');
+$c = new BlobCache('tmp_blob_cache');
 $c->set('a', 1);
 echo $c->get('a') == 1 ? 'true' : 'false';
 $c->close();
