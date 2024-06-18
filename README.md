@@ -1,3 +1,15 @@
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this
+file except in compliance with the License. You may obtain a copy of the License at:
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under
+the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+ANY KIND, either express or implied. See the License for the specific language
+governing permissions and limitations under the License.
+
+@author ddofborg <https://github.com/ddofborg>
+
+
 # What is this?
 
 Persistent key-value store with a write-ahead log (WAL) for crash recovery. The
@@ -36,7 +48,7 @@ time. File locking mechanism is present.
 See `README.benchmarks.md` for more benchmarks on Python.
 
     ## 10000 entries, 10000 bytes each
-    
+
     LmdbCache         - Set: 0.1316s, Get: 0.0548s, Delete: 0.0000s
     BerkleyDbCache    - Set: 1.2471s, Get: 0.0919s, Delete: 0.0000s
     RocksdictCache    - Set: 0.6009s, Get: 0.1236s, Delete: 0.0000s
