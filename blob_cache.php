@@ -96,13 +96,13 @@ class BlobCache
     private $autoVacuumThreshold;
     private $decodeAsArray;
 
+    /**
+     * Initialize the cache with the data file.
+     * dataFile: The data file name without extension.
+     * autoVacuumThreshold: The fragmentation ratio threshold for auto vacuuming.
+     */
     public function __construct($dataFile, $decodeAsArray=false, $autoVacuumThreshold = 0.5)
     {
-        /**
-         * Initialize the cache with the data file.
-         * dataFile: The data file name without extension.
-         * autoVacuumThreshold: The fragmentation ratio threshold for auto vacuuming.
-         */
         $this->stats = array(
             'hits' => 0,
             'sets' => 0,
@@ -136,11 +136,11 @@ class BlobCache
         $this->walFileFd = fopen($this->walFile, 'ab');
     }
 
+    /**
+     * Check if the cache data file is locked.
+     */
     private function isLocked($fd = null, $keepLocked = false)
     {
-        /**
-         * Check if the cache data file is locked.
-         */
         $locked = false;
         if (flock($fd, LOCK_EX | LOCK_NB)) {
             $locked = false;
@@ -153,30 +153,30 @@ class BlobCache
         return $locked;
     }
 
+    /**
+     * Lock the cache data file.
+     */
     private function lockFile($fd = null)
     {
-        /**
-         * Lock the cache data file.
-         */
         if (!flock($fd, LOCK_EX | LOCK_NB)) {
             throw new Exception("Lock failed. File is already locked by another process.");
         }
     }
 
+    /**
+     * Unlock the cache data file.
+     */
     private function unlockFile($fd = null)
     {
-        /**
-         * Unlock the cache data file.
-         */
         flock($fd, LOCK_UN);
     }
 
+    /**
+     * Load the index from the index file and the write-ahead log (WAL) file
+     * if it exists. Then return the index and remove the WAL file.
+     */
     private function loadIndex()
     {
-        /**
-         * Load the index from the index file and the write-ahead log (WAL) file
-         * if it exists. Then return the index and remove the WAL file.
-         */
         $index = array();
         $now = time();
 
@@ -235,11 +235,11 @@ class BlobCache
         return $index;
     }
 
+    /**
+     * Append an entry to the write-ahead log (WAL) file.
+     */
     private function appendToWalFile($key, $entry = null)
     {
-        /**
-         * Append an entry to the write-ahead log (WAL) file.
-         */
         $buf = array();
         $keyBytes = $key;
         $keyLength = strlen($keyBytes);
@@ -256,11 +256,11 @@ class BlobCache
         fflush($this->walFileFd);
     }
 
+    /**
+     * Save the index to the index file and remove the WAL file.
+     */
     private function saveIndex()
     {
-        /**
-         * Save the index to the index file and remove the WAL file.
-         */
         $tmpIndexFile = $this->indexFile . '.tmp';
         $f = fopen($tmpIndexFile, 'wb');
         foreach ($this->index as $key => $entry) {
@@ -279,28 +279,28 @@ class BlobCache
         }
     }
 
+    /**
+     * Write the header of the data file.
+     */
     private function writeHeader()
     {
-        /**
-         * Write the header of the data file.
-         */
         fwrite($this->dataFileAppendFd, self::HEADER_DATA_FILE);
     }
 
+    /**
+     * Compress data using zlib.
+     */
     private function getCompressedData($data)
     {
-        /**
-         * Compress data using zlib.
-         */
         return gzcompress($data, 6);
     }
 
+    /**
+     * Append data to the data file and return the start position and length
+     * of the compressed data.
+     */
     private function appendFrameToDataFile($key, $expires, $isBytes, $data)
     {
-        /**
-         * Append data to the data file and return the start position and length
-         * of the compressed data.
-         */
         $buf = array();
         $buf[] = pack('C', $isBytes);
         $start = ftell($this->dataFileAppendFd);
@@ -313,11 +313,11 @@ class BlobCache
         return array($start, $end - $start);
     }
 
+    /**
+     * Read data frame from the data file starting at the given position.
+     */
     private function readFrameFromDataFile($start)
     {
-        /**
-         * Read data frame from the data file starting at the given position.
-         */
         fseek($this->dataFileReadFd, $start);
         $isBytes = unpack('C', fread($this->dataFileReadFd, 1))[1];
         $dataLength = unpack('I', fread($this->dataFileReadFd, 4))[1];
@@ -329,12 +329,24 @@ class BlobCache
         return $data;
     }
 
+    /**
+     * Set a key in the cache only if this key is not found in cache.
+     */
+    public function setOnMiss($key, $value, $ttl = null)
+    {
+        if(!$this->has($key))
+        {
+            $this->set($key, $value, $ttl);
+        }
+
+    }
+
+    /**
+     * Set a key in the cache. The value can be a string, set, dict, list,
+     * int, float, bool or bytes.
+     */
     public function set($key, $value, $ttl = null)
     {
-        /**
-         * Set a key in the cache. The value can be a string, set, dict, list,
-         * int, float, bool or bytes.
-         */
         if (!is_string($key)) {
             throw new Exception('Key must be a string');
         }
@@ -368,12 +380,12 @@ class BlobCache
         $this->stats['sets'] += 1;
     }
 
+    /**
+     * Get a key from the cache. If the key is expired, the `refreshCallback`
+     * is called and its return value is stored in the cache with the new TTL.
+     */
     public function get($key, $refreshCallback = null, $newTtl = null)
     {
-        /**
-         * Get a key from the cache. If the key is expired, the `refreshCallback`
-         * is called and its return value is stored in the cache with the new TTL.
-         */
         if (!is_string($key)) {
             throw new Exception('Key must be a string');
         }
@@ -400,11 +412,11 @@ class BlobCache
         throw new Exception("Key `{$key}` is not found or expired");
     }
 
+    /**
+     * Check if a key is in the cache and it not expired.
+     */
     public function has($key)
     {
-        /**
-         * Check if a key is in the cache and it not expired.
-         */
         if (!is_string($key)) {
             throw new Exception('Key must be a string');
         }
@@ -419,20 +431,26 @@ class BlobCache
         return true;
     }
 
+    /**
+     * Return a list of key in the cache.
+     */
     public function keys() {
         return array_keys($this->index);
     }
 
+    /**
+     * Delete a key from cache: synonym for delete().
+     */
     public function del($key)
     {
         return $this->delete($key);
     }
 
+    /**
+     * Delete a key from the cache.
+     */
     public function delete($key)
     {
-        /**
-         * Delete a key from the cache.
-         */
         if (!is_string($key)) {
             throw new Exception('Key must be a string');
         }
@@ -448,11 +466,11 @@ class BlobCache
         }
     }
 
+    /**
+     * Delete all keys from the cache that start with the given prefix.
+     */
     public function deleteStartsWith($key)
     {
-        /**
-         * Delete all keys from the cache that start with the given prefix.
-         */
         $keys = array();
         foreach ($this->index as $k => $v) {
             if (strpos($k, $key) === 0) {
@@ -464,12 +482,12 @@ class BlobCache
         }
     }
 
+    /**
+     * Return the expiration timestamp of a key. If `relative` is True,
+     * return the relative time in seconds.
+     */
     public function whenExpired($key, $relative = false)
     {
-        /**
-         * Return the expiration timestamp of a key. If `relative` is True,
-         * return the relative time in seconds.
-         */
         if (!is_string($key)) {
             throw new Exception('Key must be a string');
         }
@@ -484,11 +502,11 @@ class BlobCache
         throw new Exception("Key `{$key}` is not found");
     }
 
+    /**
+     * Return the cache statistics.
+     */
     public function getStats()
     {
-        /**
-         * Return the cache statistics.
-         */
         $fragmentationRatio = $this->fragmentationRatio();
         $dataFileSize = ftell($this->dataFileAppendFd);
         $this->stats['fragmentation_ratio'] = $fragmentationRatio;
@@ -497,21 +515,21 @@ class BlobCache
         return $this->stats;
     }
 
+    /**
+     * Return the fragmentation ratio of the data file, meaning
+     * the ratio of the data which is also in the index to the file size.
+     * Higher value means more fragmented. 0.8 means only 20% is used for
+     * data, the rest of the data file is old.
+     */
     public function fragmentationRatio()
     {
-        /**
-         * Return the fragmentation ratio of the data file, meaning
-         * the ratio of the data which is also in the index to the file size.
-         * Higher value means more fragmented. 0.8 means only 20% is used for
-         * data, the rest of the data file is old.
-         */
         if ($this->dataFileReadFd === null) {
             throw new Exception('Cache is closed');
         }
 
         $sizeFile = ftell($this->dataFileAppendFd) - strlen(self::HEADER_DATA_FILE);
-        if ($sizeFile == 0) {
-            return 1;
+        if ($sizeFile <= 0) {
+            return 0;
         }
 
         $sizeIndex = 0;
@@ -521,12 +539,12 @@ class BlobCache
         return 1 - ($sizeIndex / $sizeFile);
     }
 
+    /**
+     * Rebuild the data file to remove fragmentation by removing
+     * the data which is not in the index.
+     */
     public function vacuum()
     {
-        /**
-         * Rebuild the data file to remove fragmentation by removing
-         * the data which is not in the index.
-         */
         if ($this->dataFileReadFd === null) {
             throw new Exception('Cache is closed');
         }
@@ -552,11 +570,11 @@ class BlobCache
         $this->saveIndex();
     }
 
+    /**
+     * Close the cache. Closes all files and saves the index.
+     */
     public function close()
     {
-        /**
-         * Close the cache. Closes all files and saves the index.
-         */
         if ($this->dataFileReadFd === null) {
             throw new Exception('Cache is already closed');
         }

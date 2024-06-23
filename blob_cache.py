@@ -308,6 +308,12 @@ class BlobCache:
         ''' Decompress data using zlib. '''
         return zlib.decompress(compressed_data)
 
+    def set_on_miss(self, key: str, value: Union[str, set, dict, list, int, float, bool, bytes], ttl: Optional[int] = None):
+        ''' Set a key in the cache only if this key is not found in cache.
+            The value can be a string, set, dict, list, int, float, bool or bytes. '''
+        if not self.has(key):
+            self.set(key, value, ttl)
+
     def set(self, key: str, value: Union[str, set, dict, list, int, float, bool, bytes], ttl: Optional[int] = None):
         ''' Set a key in the cache. The value can be a string, set, dict, list,
             int, float, bool or bytes. '''
@@ -410,8 +416,8 @@ class BlobCache:
             data, the rest of the data file is old. '''
         assert self.data_file_read_fd, 'Cache is closed'
         size_file = self.data_file_append_fd.tell() - len(self.header_data_file)
-        if size_file == 0:
-            return 1
+        if size_file <= 0:
+            return 0
         size_index = 0
         for _, entry in self.index.items():
             size_index += entry['length']
