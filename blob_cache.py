@@ -17,8 +17,8 @@ What is this?
 
 Persistent key-value store with a write-ahead log (WAL) for crash recovery. The
 data is compressed using zlib and stored in a single data file. The index is
-stored in a separate file. Keys must be strings. Values can be any JSON-serializable
-object or bytes.
+stored in a separate file. Keys must be strings. Values can be any 
+JSON-serializable object or bytes.
 
 The reason for this is to overcome the limitations when storing cache on the
 filesystem as a separate file. Each file is basically a key-value pair, name
@@ -26,11 +26,12 @@ is the key and contents is the value. When the number of objects grows, the
 number of files also grows. This can lead to errors on the file systems or
 reach inodes limits.
 
-We also needed a caching method which was supported by a Python and PHP scripts.
+We also needed a caching method which was supported by a Python and PHP 
+scripts.
 
 This approach is also faster than storing each key-value pair in a separate
-file, it is slower than using `LMDB` or `RocksDb`. On PHP platorm those are
-not always readily available and in out case performance was good enough.
+file, it is slower than using `LMDB` or `RocksDb`. On PHP platform those are
+not always readily available and in our case performance was good enough.
 
 There are no external dependencies.
 
@@ -78,7 +79,6 @@ WAL file:
     8 bytes   long long   data frame position in data file
     4 bytes   long        expiration timestamp
 
-
 '''
 
 import io
@@ -93,27 +93,31 @@ from typing import Callable, Union, Optional
 import logging
 # Set up global logging
 LOG = logging.getLogger(__name__)
-# Only configure logging if it has not been configured yet.
 if not logging.getLogger().hasHandlers():
+    # Only configure logging if it has not been configured yet.
     logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
 
 class BlobCache:
 
     header_data_file = b'blob.cache.data.01'
-    ''' The header of the data file.'''
+    ''' The header of the data file. '''
 
     pack_format_index = 'QII'
-    ''' The format of the index entry in the index file. long long start, int length, int expires.'''
+    ''' The format of the index entry in the index file. long 
+        long start, int length, int expires.'''
 
     stats = {}
 
     def __init__(self, data_file: str, auto_vacuum_threshold: float = 0.5):
         ''' Initialize the cache with the data file.
 
-            data_file: The data file name without extension.
-            auto_vacuum_threshold: The fragmentation ratio threshold for auto vacuuming.
+            Args:
 
-            '''
+                data_file (str): The data file name without extension.
+                
+                auto_vacuum_threshold (float): The fragmentation ratio 
+                    threshold for auto vacuuming. Defaults to 0.5.
+        '''
 
         self.stats = {
             'hits': 0,
@@ -128,22 +132,24 @@ class BlobCache:
         self.index_file = data_file + '.index.bin'
         self.wal_file = data_file + '.wal.bin'
 
-        # data file for appending
         self.data_file_append_fd = open(self.data_file, 'ab')
+        # Data file handler for appending
         self._lock_file(self.data_file_append_fd)
         _tell = self.data_file_append_fd.tell()
         if _tell == 0:
             self._write_header()
         else:
             LOG.debug('Datafile of size %d bytes is found.', _tell)
-        self.data_file_append_fd.seek(0, io.SEEK_END)  # needed for PHP, so added here too
+        self.data_file_append_fd.seek(0, io.SEEK_END)  
+        # needed for PHP, so added here too
 
-        # data file for reading
         self.data_file_read_fd = open(self.data_file, 'rb')
+        # Data file handler for reading
 
-        # load index and read WAL file is exists to the index and remove WAL file
+        # Load index and read WAL file is exists to the index and 
+        # remove WAL file
         self.index = self._load_index()
-        # write-ahead log (WAL) file, open after loading index
+        # Write-ahead log (WAL) file, open after loading index
         self.wal_file_fd = open(self.wal_file, 'ab')
 
     def _is_locked(self, fd=None, keep_locked=False):
@@ -221,6 +227,7 @@ class BlobCache:
                     else:
                         if key in index:
                             del index[key]
+            # TODO BUG FIXME: best is self._save_index() after loading of the WAL file so we know it is saved as now it's possible to loose data from the WAL is BLOB crashes
             os.remove(self.wal_file)
 
         LOG.debug('...index loaded with %d keys.', len(index))
