@@ -39,14 +39,21 @@ There are no external dependencies.
 Drawbacks
 ---------
 
-One issue with this approach is that the data file can become fragmented, as
-every update is written at the end. To overcome this, a `vacuum()` method is
-provided to rebuild the data file. The fragmentation ratio can be checked with
-the `fragmentation_ratio()` method.
+The data file can become fragmented as every update is written at the end. To 
+overcome this, a `vacuum()` method is provided to rebuild the data file. The 
+fragmentation ratio can be checked with the `fragmentation_ratio()` method.
 
-Another big drawback is that this approach can only be used by one process at a
-time.
+The code is thread safe, but not process safe and can be used only by one
+process at a time. The file is locked and will throw an error if another
+process tries to access the same file.
 
+
+Notes
+-----
+
+- All methods which are not thread safe have the `_unsafe` suffix and start
+  with `_` prefix. This means that these methods should be called within a
+  context manager with `with self._thread_lock:`.
 
 
 BLOB FORMATS
@@ -89,6 +96,7 @@ import os
 import time
 import fcntl
 from typing import Callable, Union, Optional
+from threading import Lock
 
 import logging
 # Set up global logging
@@ -108,6 +116,8 @@ class BlobCache:
 
     stats = {}
 
+    _thread_lock = Lock()
+
     def __init__(self, data_file: str, auto_vacuum_threshold: float = 0.5):
         ''' Initialize the cache with the data file.
 
@@ -119,40 +129,42 @@ class BlobCache:
                     threshold for auto vacuuming. Defaults to 0.5.
         '''
 
-        self.stats = {
-            'hits': 0,
-            'sets': 0,
-            'deletes': 0,
-            'misses': 0,
-            'refreshes': 0,
-        }
-        self.auto_vacuum_threshold = auto_vacuum_threshold
+        with self._thread_lock:
 
-        self.data_file = data_file + '.data.bin'
-        self.index_file = data_file + '.index.bin'
-        self.wal_file = data_file + '.wal.bin'
+            self.stats = {
+                'hits': 0,
+                'sets': 0,
+                'deletes': 0,
+                'misses': 0,
+                'refreshes': 0,
+            }
+            self.auto_vacuum_threshold = auto_vacuum_threshold
 
-        self.data_file_append_fd = open(self.data_file, 'ab')
-        # Data file handler for appending
-        self._lock_file(self.data_file_append_fd)
-        _tell = self.data_file_append_fd.tell()
-        if _tell == 0:
-            self._write_header()
-        else:
-            LOG.debug('Datafile of size %d bytes is found.', _tell)
-        self.data_file_append_fd.seek(0, io.SEEK_END)  
-        # needed for PHP, so added here too
+            self.data_file = data_file + '.data.bin'
+            self.index_file = data_file + '.index.bin'
+            self.wal_file = data_file + '.wal.bin'
 
-        self.data_file_read_fd = open(self.data_file, 'rb')
-        # Data file handler for reading
+            self.data_file_append_fd = open(self.data_file, 'ab')
+            # Data file handler for appending
+            self._lock_file_unsafe(self.data_file_append_fd)
+            _tell = self.data_file_append_fd.tell()
+            if _tell == 0:
+                self._write_header_unsafe()
+            else:
+                LOG.debug('Datafile of size %d bytes is found.', _tell)
+            self.data_file_append_fd.seek(0, io.SEEK_END)  
+            # needed for PHP, so added here too
 
-        # Load index and read WAL file is exists to the index and 
-        # remove WAL file
-        self.index = self._load_index()
-        # Write-ahead log (WAL) file, open after loading index
-        self.wal_file_fd = open(self.wal_file, 'ab')
+            self.data_file_read_fd = open(self.data_file, 'rb')
+            # Data file handler for reading
 
-    def _is_locked(self, fd=None, keep_locked=False):
+            # Load index and read WAL file is exists to the index and 
+            # remove WAL file
+            self.index = self._load_index_unsafe()
+            # Write-ahead log (WAL) file, open after loading index
+            self.wal_file_fd = open(self.wal_file, 'ab')
+
+    def _is_locked_unsafe(self, fd=None, keep_locked=False):
         ''' Check if the cache data file is locked. '''
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -164,7 +176,7 @@ class BlobCache:
             locked = True
         return locked
 
-    def _lock_file(self, fd=None):
+    def _lock_file_unsafe(self, fd=None):
         ''' Lock the cache data file. '''
         try:
             # Try to acquire an exclusive lock on the file
@@ -175,12 +187,12 @@ class BlobCache:
             raise ex
         return fd
 
-    def _unlock_file(self, fd=None):
+    def _unlock_file_unsafe(self, fd=None):
         ''' Unlock the cache data file. '''
         fcntl.flock(fd, fcntl.LOCK_UN)
         LOG.debug("Lock released on file.")
 
-    def _load_index(self) -> dict:
+    def _load_index_unsafe(self) -> dict:
         ''' Load the index from the index file and the write-ahead log (WAL) file
             if it exists. Then return the index and remove the WAL file. '''
         index = {}
@@ -233,7 +245,7 @@ class BlobCache:
         LOG.debug('...index loaded with %d keys.', len(index))
         return index
 
-    def _append_to_wal_file(self, key: str, entry: Optional[dict]):
+    def _append_to_wal_file_unsafe(self, key: str, entry: Optional[dict]):
         ''' Append an entry to the write-ahead log (WAL) file. '''
         buf = []
         key_bytes = key.encode('utf-8')
@@ -253,7 +265,7 @@ class BlobCache:
         self.wal_file_fd.write(b''.join(buf))
         self.wal_file_fd.flush()
 
-    def _save_index(self):
+    def _save_index_unsafe(self):
         ''' Save the index to the index file and remove the WAL file. '''
         tmp_index_file = self.index_file + '.tmp'
         with open(tmp_index_file, 'wb') as f:
@@ -270,7 +282,7 @@ class BlobCache:
         if os.path.exists(self.wal_file):
             os.remove(self.wal_file)
 
-    def _write_header(self):
+    def _write_header_unsafe(self):
         ''' Write the header of the data file. '''
         self.data_file_append_fd.write(self.header_data_file)
 
@@ -278,7 +290,7 @@ class BlobCache:
         ''' Compress data using zlib. '''
         return zlib.compress(data, 6)
 
-    def _append_frame_to_data_file(self, key: str, expires:int, is_bytes: int, data: bytes) -> tuple:
+    def _append_frame_to_data_file_unsafe(self, key: str, expires:int, is_bytes: int, data: bytes) -> tuple:
         ''' Append data to the data file and return the start position and length
             of the compressed data.'''
         buf = []
@@ -297,7 +309,8 @@ class BlobCache:
         end = self.data_file_append_fd.tell()
         return start, end - start
 
-    def _read_frame_from_data_file(self, start: int):
+    def _read_frame_from_data_file_unsafe(self, start: int):
+        ''' Read a frame from the data file. '''
         data = None
         self.data_file_read_fd.seek(start)
         # read is_bytes (int)
@@ -318,12 +331,18 @@ class BlobCache:
     def set_on_miss(self, key: str, value: Union[str, set, dict, list, int, float, bool, bytes], ttl: Optional[int] = None):
         ''' Set a key in the cache only if this key is not found in cache.
             The value can be a string, set, dict, list, int, float, bool or bytes. '''
-        if not self.has(key):
-            self.set(key, value, ttl)
+        with self._thread_lock:
+            if not self._has_unsafe(key):
+                self._set_unsafe(key, value, ttl)
 
     def set(self, key: str, value: Union[str, set, dict, list, int, float, bool, bytes], ttl: Optional[int] = None):
+        ''' Thread safe version of self._set(). '''
+        with self._thread_lock:
+            return self._set_unsafe(key, value, ttl)
+
+    def _set_unsafe(self, key: str, value: Union[str, set, dict, list, int, float, bool, bytes], ttl: Optional[int] = None):
         ''' Set a key in the cache. The value can be a string, set, dict, list,
-            int, float, bool or bytes. '''
+            int, float, bool or bytes without locking. '''
         assert isinstance(key, str), 'Key must be a string'
         assert self.data_file_read_fd, 'Cache is closed'
         if isinstance(value, bytes):
@@ -337,7 +356,7 @@ class BlobCache:
 
         expires = int(time.time() + ttl) if ttl else 0
 
-        start, length = self._append_frame_to_data_file(key, expires, is_bytes, data)
+        start, length = self._append_frame_to_data_file_unsafe(key, expires, is_bytes, data)
 
         entry = {
             'start': start,
@@ -346,11 +365,16 @@ class BlobCache:
             'is_bytes': is_bytes,
         }
         self.index[key] = entry
-        self._append_to_wal_file(key, entry)
+        self._append_to_wal_file_unsafe(key, entry)
 
         self.stats['sets'] += 1
 
     def get(self, key: str, refresh_callback: Optional[Callable[[str], Union[str, dict]]] = None, new_ttl: Optional[int] = None):
+        ''' Thread safe version of self._get(). '''
+        with self._thread_lock:
+            return self._get_unsafe(key, refresh_callback, new_ttl)
+
+    def _get_unsafe(self, key: str, refresh_callback: Optional[Callable[[str], Union[str, dict]]] = None, new_ttl: Optional[int] = None):
         ''' Get a key from the cache. If the key is expired, the `refresh_callback`
             is called and its return value is stored in the cache with the new TTL.
             '''
@@ -358,18 +382,18 @@ class BlobCache:
         assert self.data_file_read_fd, 'Cache is closed'
 
         # has key and not expired
-        if self.has(key):
+        if self._has_unsafe(key):
             self.stats['hits'] += 1
             entry = self.index[key]
-            return self._read_frame_from_data_file(entry['start'])
+            return self._read_frame_from_data_file_unsafe(entry['start'])
 
         self.stats['misses'] += 1
 
-        # key is expired or not found, refresh?
         if refresh_callback:
+            # key is expired or not found, refresh...
             self.stats['refreshes'] += 1
             value = refresh_callback(key)
-            self.set(key, value, ttl=new_ttl)
+            self._set_unsafe(key, value, ttl=new_ttl)
             return value
 
         # key is not found or expired and no refresh callback
@@ -377,6 +401,11 @@ class BlobCache:
 
     def has(self, key: str) -> bool:
         ''' Check if a key is in the cache and it not expired. '''
+        with self._thread_lock:
+            return self._has_unsafe(key)
+        
+    def _has_unsafe(self, key: str) -> bool:
+        ''' Check if a key is in the cache and it not expired without locking. '''
         assert isinstance(key, str), 'Key must be a string'
         assert self.data_file_read_fd, 'Cache is closed'
         if (key not in self.index) or (self.index[key]['expires'] and time.time() > self.index[key]['expires']):
@@ -384,32 +413,44 @@ class BlobCache:
         return True
 
     def delete(self, key: str):
+        ''' Thread safe version of self._delete(). '''
+        with self._thread_lock:
+            return self._delete_unsafe(key)
+
+    def _delete_unsafe(self, key: str):
         ''' Delete a key from the cache. '''
         assert isinstance(key, str), 'Key must be a string'
         assert self.data_file_read_fd, 'Cache is closed'
         if key in self.index:
-            self._append_to_wal_file(key, None)
+            self._append_to_wal_file_unsafe(key, None)
             del self.index[key]
             self.stats['deletes'] += 1
 
     def delete_startswith(self, key: str):
         ''' Delete all keys from the cache that start with the given prefix. '''
-        keys = [k for k in self.index.keys() if k.startswith(key)]
-        for k in keys:
-            self.delete(k)
+        with self._thread_lock:
+            keys = [k for k in self.index.keys() if k.startswith(key)]
+            for k in keys:
+                self._delete_unsafe(k)
 
     def when_expired(self, key: str, relative=False) -> int:
         ''' Return the expiration timestamp of a key. If `relative` is True,
             return the relative time in seconds. '''
-        assert isinstance(key, str), 'Key must be a string'
-        assert self.data_file_read_fd, 'Cache is closed'
-        if key in self.index:
-            return int(self.index[key]['expires'] - time.time()) if relative else self.index[key]['expires']
-        raise KeyError(f'Key `{key}` is not found')
+        with self._thread_lock:
+            assert isinstance(key, str), 'Key must be a string'
+            assert self.data_file_read_fd, 'Cache is closed'
+            if key in self.index:
+                return int(self.index[key]['expires'] - time.time()) if relative else self.index[key]['expires']
+            raise KeyError(f'Key `{key}` is not found')
 
     def get_stats(self) -> dict:
+        ''' Thread safe version of self._get_stats(). '''
+        with self._thread_lock:
+            return self._get_stats_unsafe()
+
+    def _get_stats_unsafe(self) -> dict:
         ''' Return the cache statistics. '''
-        fragmentation_ratio = self.fragmentation_ratio()
+        fragmentation_ratio = self._fragmentation_ratio_unsafe()
         data_file_size = self.data_file_append_fd.tell()
         self.stats['fragmentation_ratio']  = fragmentation_ratio
         self.stats['total_keys']  = len(self.index)
@@ -417,6 +458,11 @@ class BlobCache:
         return self.stats
 
     def fragmentation_ratio(self):
+        ''' Thread safe version of self._fragmentation_ratio(). '''
+        with self._thread_lock:
+            return self._fragmentation_ratio_unsafe()
+
+    def _fragmentation_ratio_unsafe(self):
         ''' Return the fragmentation ratio of the data file, meaning
             the ratio of the data which is also in the index to the file size.
             Higher value means more fragmented. 0.8 means only 20% is used for
@@ -431,6 +477,11 @@ class BlobCache:
         return 1 - (size_index / size_file)
 
     def vacuum(self):
+        ''' Thread safe version of self._vacuum(). '''
+        with self._thread_lock:
+            return self._vacuum_unsafe()
+
+    def _vacuum_unsafe(self):
         ''' Rebuild the data file to remove fragmentation by removing
             the data which is not in the index. '''
         assert self.data_file_read_fd, 'Cache is closed'
@@ -438,7 +489,7 @@ class BlobCache:
         tmp_data_file = self.data_file + '.tmp'
         new_index = {}
         with open(tmp_data_file, 'wb') as new_file:
-            self._write_header()
+            self._write_header_unsafe()
             for key, entry in self.index.items():
                 self.data_file_read_fd.seek(entry['start'])
                 data_frame = self.data_file_read_fd.read(entry['length'])
@@ -452,28 +503,30 @@ class BlobCache:
 
         os.replace(tmp_data_file, self.data_file)
         self.index = new_index
-        self._save_index()
+        self._save_index_unsafe()
 
     def close(self):
         ''' Close the cache. Closes all files and saves the index. '''
-        if not self.data_file_read_fd:
-            raise RuntimeError('Cache is already closed')
+       
+        with self._thread_lock:
+            if not self.data_file_read_fd:
+                raise RuntimeError('Cache is already closed')
 
-        stats = self.get_stats()
+            stats = self._get_stats_unsafe()
 
-        if self.fragmentation_ratio() > self.auto_vacuum_threshold:
-            LOG.debug(f"Auto vacuuming data file as fragmentation ratio is higher than {self.auto_vacuum_threshold}.")
-            self.vacuum()
-        if self.data_file_read_fd:
-            self.data_file_read_fd.close()
-            self.data_file_read_fd = None
-        if self.wal_file_fd:
-            self.wal_file_fd.close()
-            self.wal_file_fd = None
-        if self.data_file_append_fd:
-            self._unlock_file(self.data_file_append_fd)
-            self.data_file_append_fd.close()
-            self.data_file_append_fd = None
-        self._save_index()
+            if self._fragmentation_ratio_unsafe() > self.auto_vacuum_threshold:
+                LOG.debug(f"Auto vacuuming data file as fragmentation ratio is higher than {self.auto_vacuum_threshold}.")
+                self._vacuum_unsafe()
+            if self.data_file_read_fd:
+                self.data_file_read_fd.close()
+                self.data_file_read_fd = None
+            if self.wal_file_fd:
+                self.wal_file_fd.close()
+                self.wal_file_fd = None
+            if self.data_file_append_fd:
+                self._unlock_file_unsafe(self.data_file_append_fd)
+                self.data_file_append_fd.close()
+                self.data_file_append_fd = None
+            self._save_index_unsafe()
 
-        LOG.debug(f"Cache closed, stats: {stats}")
+            LOG.debug(f"Cache closed, stats: {stats}")
